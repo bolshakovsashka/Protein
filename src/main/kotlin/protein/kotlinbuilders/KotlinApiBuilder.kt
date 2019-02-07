@@ -33,14 +33,18 @@ import io.swagger.models.properties.Property
 import io.swagger.models.properties.RefProperty
 import io.swagger.models.properties.StringProperty
 import io.swagger.parser.SwaggerParser
+import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import protein.common.StorageUtils
 import protein.tracking.ErrorTracking
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import java.io.FileNotFoundException
@@ -228,12 +232,18 @@ class KotlinApiBuilder(
             else -> AnnotationSpec.builder(GET::class).addMember("\"${path.key.removePrefix("/")}\"").build()
           }
 
+          val hasMultipart = operation.value.parameters.any { it.`in`.contains("formData") }
+
           try {
             val doc = ((listOf(operation.value.summary + "\n") + getMethodParametersDocs(operation)).joinToString("\n")).trim()
 
-            val returnedClass = getReturnedClass(operation, classNameList)
+            val returnedClass = if (hasMultipart) Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(ResponseBody::class.java.name)) else getReturnedClass(operation, classNameList)
             val methodParameters = getMethodParameters(operation)
-            val funSpec = FunSpec.builder(operation.value.operationId)
+            val builder = FunSpec.builder(operation.value.operationId)
+            if (hasMultipart) {
+              builder.addAnnotation(AnnotationSpec.builder(Multipart::class).build())
+            }
+            val funSpec = builder
               .addModifiers(KModifier.PUBLIC, KModifier.ABSTRACT)
               .addAnnotation(annotationSpec)
               .addParameters(methodParameters)
@@ -292,6 +302,10 @@ class KotlinApiBuilder(
             val type = getKotlinClassTypeName(parameter.type, parameter.format).requiredOrNullable(parameter.required)
             ParameterSpec.builder(name, type)
           }.addAnnotation(AnnotationSpec.builder(Query::class).addMember("\"${parameter.name}\"").build()).build()
+        }
+        "formData" ->{
+          ParameterSpec.builder(name, MultipartBody.Part::class.java)
+            .addAnnotation(AnnotationSpec.builder(Part::class).build()).build()
         }
         else -> null
       }
