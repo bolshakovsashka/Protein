@@ -1,5 +1,6 @@
 package protein.kotlinbuilders
 
+import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
@@ -35,6 +36,9 @@ import io.swagger.models.properties.StringProperty
 import io.swagger.parser.SwaggerParser
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
+import protein.additional.data.AdditionalMethod
+import protein.additional.data.ApiPath
+import protein.additional.data.Config
 import protein.common.StorageUtils
 import protein.tracking.ErrorTracking
 import retrofit2.http.Body
@@ -47,7 +51,9 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Url
 import java.io.FileNotFoundException
+import java.io.FileReader
 import java.lang.IllegalStateException
 import java.net.UnknownHostException
 import java.util.ArrayList
@@ -82,6 +88,36 @@ class KotlinApiBuilder(
     errorTracking.logException(notFound)
     Swagger()
   }
+
+  private val additionalConfig: Config? by lazy {
+    with(Gson()) {
+      try {
+        return@with fromJson(FileReader(proteinApiConfiguration.additionalConfig), Config::class.java)
+      } catch (e: Exception) {
+        e.printStackTrace()
+        return@with null
+      }
+    }
+  }
+
+  private val co = "{\n" +
+    "  \"additional_methods\" : [\n" +
+    "     {\n" +
+    "    \"api_paths\" : [\n" +
+    "      {\"type\" :\"Url\", \"path\" : null}\n" +
+    "    ],\n" +
+    "    \"method_name\": \"getMyExternalIp\",\n" +
+    "    \"return_type\": \"com.synesis.gem.entity.entity.InfoIpExternal\",\n" +
+    "    \"parameters\" : [\n" +
+    "      {\n" +
+    "        \"annotation\" : \"Url\",\n" +
+    "        \"type\": \"String\",\n" +
+    "        \"name\": \"url\"\n" +
+    "      }\n" +
+    "      ]\n" +
+    "    }\n" +
+    "  ]\n" +
+    "}"
 
   private lateinit var apiInterfaceTypeSpec: TypeSpec
   private val responseBodyModelListTypeSpec: ArrayList<TypeSpec> = ArrayList()
@@ -240,6 +276,7 @@ class KotlinApiBuilder(
             val returnedClass = if (hasMultipart) Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(ResponseBody::class.java.name)) else getReturnedClass(operation, classNameList)
             val methodParameters = getMethodParameters(operation)
             val builder = FunSpec.builder(operation.value.operationId)
+
             if (hasMultipart) {
               builder.addAnnotation(AnnotationSpec.builder(Multipart::class).build())
             }
@@ -254,6 +291,105 @@ class KotlinApiBuilder(
             apiInterfaceTypeSpec.addFunction(funSpec)
           } catch (exception: Exception) {
             errorTracking.logException(exception)
+          }
+        }
+      }
+    }
+
+    additionalConfig?.additionalMethods?.forEach { additionalMethod: AdditionalMethod ->
+      val builder = FunSpec.builder(additionalMethod.methodName).addModifiers(KModifier.PUBLIC, KModifier.ABSTRACT)
+      val returnedClass = Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(additionalMethod.returnType))
+
+      additionalMethod.apiPaths.forEach {
+        builder.addAnnotation(parseAnnotationFromAdditionalMethod(it))
+      }
+
+      val funSpec = builder
+        .addParameters(parseParametersFromAdditionalMethod(additionalMethod.parameters))
+        .returns(returnedClass)
+        .addKdoc(additionalMethod.toString())
+        .build()
+
+      apiInterfaceTypeSpec.addFunction(funSpec)
+    }
+  }
+
+  private fun parseAnnotationFromAdditionalMethod(apiPath: ApiPath): AnnotationSpec {
+    return when {
+      apiPath.type.contains("GET", true) -> {
+        val builder = AnnotationSpec.builder(GET::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+      apiPath.type.contains("POST", true) -> {
+        val builder = AnnotationSpec.builder(POST::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+      apiPath.type.contains("PUT", true) -> {
+        val builder = AnnotationSpec.builder(PUT::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+      apiPath.type.contains("PATCH", true) -> {
+        val builder = AnnotationSpec.builder(PATCH::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+      apiPath.type.contains("DELETE", true) -> {
+        val builder = AnnotationSpec.builder(DELETE::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+      apiPath.type.contains("Multipart", true) -> AnnotationSpec.builder(Multipart::class).build()
+      else -> {
+        val builder = AnnotationSpec.builder(GET::class)
+        apiPath.path?.let {
+          builder.addMember("\"${it.removePrefix("/")}\"")
+        }
+        builder.build()
+      }
+    }
+  }
+
+  private fun parseParametersFromAdditionalMethod(apiPath: List<protein.additional.data.Parameter>): Iterable<ParameterSpec> {
+    return apiPath.map { parametr ->
+      if (parametr.annotation.isBlank()) {
+        ParameterSpec.builder(parametr.name, MultipartBody.Part::class.java).build()
+      } else {
+        when {
+          parametr.annotation.contains("body", true) -> {
+            ParameterSpec.builder(parametr.name, ClassName.bestGuess(parametr.type).requiredOrNullable(true))
+              .addAnnotation(AnnotationSpec.builder(Body::class).build()).build()
+          }
+          //TODO
+//          parametr.annotation.contains("path", true) -> {
+//            ParameterSpec.builder(parametr.name, MultipartBody.Part::class.java)
+//              .addAnnotation(AnnotationSpec.builder(Path::class).build()).build()
+//          }
+//          parametr.annotation.contains("query", true) -> {
+//            ParameterSpec.builder(parametr.name, MultipartBody.Part::class.java)
+//              .addAnnotation(AnnotationSpec.builder(Query::class).addMember("\"${parametr.name}\"").build()).build()
+//          }
+          parametr.annotation.contains("formData", true) -> {
+            ParameterSpec.builder(parametr.name, MultipartBody.Part::class.java)
+              .addAnnotation(AnnotationSpec.builder(Part::class).build()).build()
+          }
+          parametr.annotation.contains("Url", true) -> {
+            ParameterSpec.builder(parametr.name, String::class.asClassName()).addAnnotation(AnnotationSpec.builder(Url::class).build()).build()
+          }
+          else -> {
+            ParameterSpec.builder(parametr.name, Any::class.java).build()
           }
         }
       }
@@ -303,7 +439,7 @@ class KotlinApiBuilder(
             ParameterSpec.builder(name, type)
           }.addAnnotation(AnnotationSpec.builder(Query::class).addMember("\"${parameter.name}\"").build()).build()
         }
-        "formData" ->{
+        "formData" -> {
           ParameterSpec.builder(name, MultipartBody.Part::class.java)
             .addAnnotation(AnnotationSpec.builder(Part::class).build()).build()
         }
