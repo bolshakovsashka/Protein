@@ -1,12 +1,13 @@
 package protein.kotlinbuilders
 
-import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
 import com.squareup.kotlinpoet.TypeName
@@ -15,11 +16,11 @@ import com.squareup.kotlinpoet.TypeVariableName
 import com.squareup.kotlinpoet.asClassName
 import io.reactivex.Completable
 import io.reactivex.Single
+import io.swagger.models.ArrayModel
 import io.swagger.models.HttpMethod
 import io.swagger.models.ModelImpl
 import io.swagger.models.Operation
 import io.swagger.models.RefModel
-import io.swagger.models.ArrayModel
 import io.swagger.models.Swagger
 import io.swagger.models.parameters.BodyParameter
 import io.swagger.models.parameters.Parameter
@@ -36,9 +37,7 @@ import io.swagger.models.properties.StringProperty
 import io.swagger.parser.SwaggerParser
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
-import protein.additional.data.AdditionalMethod
 import protein.additional.data.ApiPath
-import protein.additional.data.Config
 import protein.common.StorageUtils
 import protein.tracking.ErrorTracking
 import retrofit2.http.Body
@@ -54,9 +53,24 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 import java.io.FileNotFoundException
 import java.io.FileReader
-import java.lang.IllegalStateException
 import java.net.UnknownHostException
 import java.util.ArrayList
+import kotlin.collections.HashMap
+import kotlin.collections.Iterable
+import kotlin.collections.List
+import kotlin.collections.Map
+import kotlin.collections.MutableMap
+import kotlin.collections.any
+import kotlin.collections.filterNot
+import kotlin.collections.forEach
+import kotlin.collections.iterator
+import kotlin.collections.joinToString
+import kotlin.collections.listOf
+import kotlin.collections.map
+import kotlin.collections.mapIndexed
+import kotlin.collections.mapNotNull
+import kotlin.collections.plus
+import kotlin.collections.set
 
 class KotlinApiBuilder(
   private val proteinApiConfiguration: ProteinApiConfiguration,
@@ -70,14 +84,28 @@ class KotlinApiBuilder(
     const val STRING_SWAGGER_TYPE = "string"
     const val BOOLEAN_SWAGGER_TYPE = "boolean"
     const val REF_SWAGGER_TYPE = "ref"
+
+
+    const val PREFIX_API = "api"
+    const val PREFIX_MODELS = "models"
+    const val PREFIX_DTO = "dto"
+    const val PREFIX_COMMON = "common"
   }
 
   private val swaggerModel: Swagger = try {
-    if (!proteinApiConfiguration.swaggerUrl.isEmpty()) {
+    val sw = if (!proteinApiConfiguration.swaggerUrl.isEmpty()) {
       SwaggerParser().read(proteinApiConfiguration.swaggerUrl)
     } else {
       SwaggerParser().read(proteinApiConfiguration.swaggerFile)
     }
+
+    getAdditionSwaggerModel()?.let {
+      it.tags?.forEach { sw.addTag(it) }
+      it.definitions?.forEach { t, u -> sw.addDefinition(t, u) }
+      it.paths?.forEach { t, u -> sw.path(t, u) }
+    }
+
+    sw
   } catch (unknown: UnknownHostException) {
     errorTracking.logException(unknown)
     Swagger()
@@ -89,63 +117,155 @@ class KotlinApiBuilder(
     Swagger()
   }
 
-  private val additionalConfig: Config? by lazy {
-    with(Gson()) {
-      try {
-        return@with fromJson(FileReader(proteinApiConfiguration.additionalConfig), Config::class.java)
-      } catch (e: Exception) {
-        e.printStackTrace()
-        return@with null
-      }
-    }
-  }
-
-  private val co = "{\n" +
-    "  \"additional_methods\" : [\n" +
-    "     {\n" +
-    "    \"api_paths\" : [\n" +
-    "      {\"type\" :\"Url\", \"path\" : null}\n" +
-    "    ],\n" +
-    "    \"method_name\": \"getMyExternalIp\",\n" +
-    "    \"return_type\": \"com.synesis.gem.entity.entity.InfoIpExternal\",\n" +
-    "    \"parameters\" : [\n" +
-    "      {\n" +
-    "        \"annotation\" : \"Url\",\n" +
-    "        \"type\": \"String\",\n" +
-    "        \"name\": \"url\"\n" +
-    "      }\n" +
-    "      ]\n" +
-    "    }\n" +
-    "  ]\n" +
-    "}"
-
-  private lateinit var apiInterfaceTypeSpec: TypeSpec
+  private lateinit var apiInterfaceTypeSpec: Map<String, TypeSpec>
   private val responseBodyModelListTypeSpec: ArrayList<TypeSpec> = ArrayList()
   private val enumListTypeSpec: ArrayList<TypeSpec> = ArrayList()
+
+  private fun getAdditionSwaggerModel(): Swagger? = try {
+    if (proteinApiConfiguration.additionalConfig.isNotEmpty()) {
+      val swagger = SwaggerParser().read(proteinApiConfiguration.additionalConfig)
+      swagger
+    } else {
+      null
+    }
+  } catch (t: Throwable) {
+    t.printStackTrace()
+    null
+  }
 
   fun build() {
     createEnumClasses()
     apiInterfaceTypeSpec = createApiRetrofitInterface(createApiResponseBodyModel())
   }
 
-  fun getGeneratedTypeSpec(): TypeSpec {
-    return apiInterfaceTypeSpec
-  }
-
   fun generateFiles() {
-    StorageUtils.generateFiles(
-      proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, apiInterfaceTypeSpec)
 
-    for (typeSpec in responseBodyModelListTypeSpec) {
+    val cl = ArrayList<TypeSpecWrapper>()
+
+    responseBodyModelListTypeSpec.forEach check@{ typeSpec ->
+      var packageName = PREFIX_DTO
+      try {
+        apiInterfaceTypeSpec.forEach { pack, apiTypeSpec ->
+          apiTypeSpec.funSpecs.forEach { apiFunSpec ->
+            (apiFunSpec.returnType as? ParameterizedTypeName)?.typeArguments?.forEach {
+              if ((it as? TypeVariableName)?.name?.equals(typeSpec.name, true) == true) {
+                packageName = "$pack"
+              }
+            }
+            apiFunSpec.parameters.forEach { parameterSpec ->
+              if ((parameterSpec.type as? ClassName)?.canonicalName?.equals(typeSpec.name, true) == true) {
+                packageName = "$pack"
+              }
+            }
+          }
+        }
+      } catch (e: Exception) {
+//          e.printStackTrace()
+      }
+
+      cl.add(TypeSpecWrapper(packageName, typeSpec))
+    }
+
+    cl.forEach { typeSpecWrapper ->
+      updatePackage(typeSpecWrapper, cl)
+    }
+
+    cl.forEach {
+      if (it.subPackage == PREFIX_DTO) {
+        it.subPackage = PREFIX_COMMON
+      }
+    }
+
+    cl.forEach {
+      val imports = generateImports(it.typeSpec, cl)
       StorageUtils.generateFiles(
-        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, typeSpec)
+        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, "${it.subPackage}.$PREFIX_MODELS", it.typeSpec, imports.toTypedArray())
+    }
+
+    apiInterfaceTypeSpec.forEach { t, u ->
+      val imports = generateImports(u, cl)
+
+      StorageUtils.generateFiles(
+        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, "$t.$PREFIX_API", u, imports.toTypedArray())
     }
 
     for (typeSpec in enumListTypeSpec) {
       StorageUtils.generateFiles(
-        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, typeSpec)
+        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, null, typeSpec, emptyArray())
     }
   }
+
+  private fun generateImports(u: TypeSpec, cl: ArrayList<TypeSpecWrapper>): ArrayList<String> {
+    val imports = ArrayList<String>()
+    try {
+      u.funSpecs.forEach { funSpec ->
+        (funSpec.returnType as? ParameterizedTypeName)?.typeArguments?.forEach {
+          val name = (it as? TypeVariableName)?.name
+          val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
+          if (null != find) {
+            imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+          }
+        }
+        funSpec.parameters.forEach { parameterSpec ->
+          val name = (parameterSpec.type as? ClassName)?.canonicalName
+          val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
+          if (null != find) {
+            imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+          }
+        }
+      }
+      u.propertySpecs.forEach {
+        (it.type as? ParameterizedTypeName)?.typeArguments?.forEach { parameterizedTypeName: TypeName ->
+          val name = (parameterizedTypeName as? TypeVariableName)?.name
+          val find = cl.find { it.typeSpec.name?.equals(name) == true }
+          if (null != find) {
+            imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+          }
+        }
+
+        val name = (it.type as? TypeVariableName)?.name
+        val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
+        if (null != find) {
+          imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+        }
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+    return imports
+  }
+
+  private fun updatePackage(typeSpecWrapper: TypeSpecWrapper, cl: ArrayList<TypeSpecWrapper>) {
+    var subPackage = typeSpecWrapper.subPackage
+    if (subPackage != PREFIX_DTO) {
+      typeSpecWrapper.typeSpec.propertySpecs.forEach { propertySpec ->
+        (propertySpec.type as? ParameterizedTypeName)?.typeArguments?.forEach { parameterizedTypeName: TypeName ->
+          val name = (parameterizedTypeName as? TypeVariableName)?.name
+          val find = cl.find { it.typeSpec.name?.equals(name) == true }
+          if (null != find) {
+            if (find.subPackage == PREFIX_DTO || find.subPackage == typeSpecWrapper.subPackage) {
+              find.subPackage = typeSpecWrapper.subPackage
+            } else {
+              find.subPackage = PREFIX_COMMON
+            }
+            updatePackage(find, cl)
+          }
+        }
+        val name = (propertySpec.type as? TypeVariableName)?.name
+        val find = cl.find { it.typeSpec.name?.equals(name) == true }
+        if (null != find) {
+          if (find.subPackage == PREFIX_DTO || find.subPackage == typeSpecWrapper.subPackage) {
+            find.subPackage = typeSpecWrapper.subPackage
+          } else {
+            find.subPackage = PREFIX_COMMON
+          }
+          updatePackage(find, cl)
+        }
+      }
+    }
+  }
+
+  private data class TypeSpecWrapper(var subPackage: String, val typeSpec: TypeSpec)
 
   private fun createEnumClasses() {
     addOperationResponseEnums()
@@ -204,113 +324,153 @@ class KotlinApiBuilder(
   private fun createApiResponseBodyModel(): List<String> {
     val classNameList = ArrayList<String>()
 
-    if (swaggerModel.definitions != null && !swaggerModel.definitions.isEmpty()) {
-      for (definition in swaggerModel.definitions) {
+    swaggerModel.definitions?.forEach { definition ->
 
-        var modelClassTypeSpec: TypeSpec.Builder
-        try {
-          modelClassTypeSpec = TypeSpec.classBuilder(definition.key).addModifiers(KModifier.DATA)
-          classNameList.add(definition.key)
-        } catch (error: IllegalArgumentException) {
-          modelClassTypeSpec = TypeSpec.classBuilder("Model" + definition.key.capitalize()).addModifiers(KModifier.DATA)
-          classNameList.add("Model" + definition.key.capitalize())
+      var modelClassTypeSpec: TypeSpec.Builder
+      try {
+        modelClassTypeSpec = TypeSpec.classBuilder(definition.key).addModifiers(KModifier.DATA)
+        classNameList.add(definition.key)
+      } catch (error: IllegalArgumentException) {
+        modelClassTypeSpec = TypeSpec.classBuilder("Model" + definition.key.capitalize()).addModifiers(KModifier.DATA)
+        classNameList.add("Model" + definition.key.capitalize())
+      }
+
+      if (definition.value != null && definition.value.properties != null) {
+        val primaryConstructor = FunSpec.constructorBuilder()
+        for (modelProperty in definition.value.properties) {
+          val typeName: TypeName = getTypeName(modelProperty)
+          val propertySpec = PropertySpec.builder(modelProperty.key, typeName)
+            .addAnnotation(AnnotationSpec.builder(SerializedName::class)
+              .addMember("\"${modelProperty.key}\"")
+              .build())
+            .initializer(modelProperty.key)
+            .build()
+          primaryConstructor.addParameter(modelProperty.key, typeName)
+          modelClassTypeSpec.addProperty(propertySpec)
+
         }
+        modelClassTypeSpec.primaryConstructor(primaryConstructor.build())
 
-        if (definition.value != null && definition.value.properties != null) {
-          val primaryConstructor = FunSpec.constructorBuilder()
-          for (modelProperty in definition.value.properties) {
-            val typeName: TypeName = getTypeName(modelProperty)
-            val propertySpec = PropertySpec.builder(modelProperty.key, typeName)
-              .addAnnotation(AnnotationSpec.builder(SerializedName::class)
-                .addMember("\"${modelProperty.key}\"")
-                .build())
-              .initializer(modelProperty.key)
-              .build()
-            primaryConstructor.addParameter(modelProperty.key, typeName)
-            modelClassTypeSpec.addProperty(propertySpec)
-          }
-          modelClassTypeSpec.primaryConstructor(primaryConstructor.build())
-
-          responseBodyModelListTypeSpec.add(modelClassTypeSpec.build())
-        }
+        responseBodyModelListTypeSpec.add(modelClassTypeSpec.build())
       }
     }
 
     return classNameList
   }
 
-  private fun createApiRetrofitInterface(classNameList: List<String>): TypeSpec {
-    val apiInterfaceTypeSpecBuilder = TypeSpec
-      .interfaceBuilder("${proteinApiConfiguration.componentName}ApiInterface")
-      .addModifiers(KModifier.PUBLIC)
+  private fun createApiRetrofitInterface(classNameList: List<String>): Map<String, TypeSpec> {
+    val map: HashMap<String, TypeSpec> = HashMap()
+    swaggerModel.tags.forEach {
 
-    addApiPathMethods(apiInterfaceTypeSpecBuilder, classNameList)
+      val apiInterfaceTypeSpecBuilder = TypeSpec
+        .interfaceBuilder("${it.name.capitalize()}Api")
+        .addModifiers(KModifier.PUBLIC)
 
-    return apiInterfaceTypeSpecBuilder.build()
+      addApiPathMethods(it.name, apiInterfaceTypeSpecBuilder, classNameList)
+
+      val typeSpec = apiInterfaceTypeSpecBuilder.build()
+
+      map[it.name] = typeSpec
+    }
+
+    return map
   }
 
-  private fun addApiPathMethods(apiInterfaceTypeSpec: TypeSpec.Builder, classNameList: List<String>) {
+  private fun addApiPathMethods(endpoint: String, apiInterfaceTypeSpec: TypeSpec.Builder, classNameList: List<String>) {
+    println("endpoint = [${endpoint}], apiInterfaceTypeSpec = [${apiInterfaceTypeSpec}], classNameList = [${classNameList}]")
+    println("-----------------------------")
     if (swaggerModel.paths != null && !swaggerModel.paths.isEmpty()) {
       for (path in swaggerModel.paths) {
         for (operation in path.value.operationMap) {
 
-          val annotationSpec: AnnotationSpec = when {
-            operation.key.name.contains(
-              "GET") -> AnnotationSpec.builder(GET::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-            operation.key.name.contains(
-              "POST") -> AnnotationSpec.builder(POST::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-            operation.key.name.contains(
-              "PUT") -> AnnotationSpec.builder(PUT::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-            operation.key.name.contains(
-              "PATCH") -> AnnotationSpec.builder(PATCH::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-            operation.key.name.contains(
-              "DELETE") -> AnnotationSpec.builder(DELETE::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-            else -> AnnotationSpec.builder(GET::class).addMember("\"${path.key.removePrefix("/")}\"").build()
-          }
+          println(path.key.removePrefix("/"))
 
-          val hasMultipart = operation.value.parameters.any { it.`in`.contains("formData") }
+          if (path.key.removePrefix("/").startsWith(endpoint, true)) {
 
-          try {
-            val doc = ((listOf(operation.value.summary + "\n") + getMethodParametersDocs(operation)).joinToString("\n")).trim()
+            val hasMultipart = operation.value.parameters.any { it.`in`.contains("formData") }
+            val customUrl = operation.value.parameters.any { it.`in`.contains("url") }
 
-            val returnedClass = if (hasMultipart) Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(ResponseBody::class.java.name)) else getReturnedClass(operation, classNameList)
-            val methodParameters = getMethodParameters(operation)
-            val builder = FunSpec.builder(operation.value.operationId)
+            val annotationSpec: AnnotationSpec = when {
+              operation.key.name.contains(
+                "GET") -> {
+                val builder = AnnotationSpec.builder(GET::class)
 
-            if (hasMultipart) {
-              builder.addAnnotation(AnnotationSpec.builder(Multipart::class).build())
+                if (!customUrl) {
+                  builder.addMember("\"${path.key.removePrefix("/")}\"")
+                }
+
+                builder.build()
+              }
+              operation.key.name.contains(
+                "POST") -> {
+                val builder = AnnotationSpec.builder(POST::class)
+
+                if (!customUrl) {
+                  builder.addMember("\"${path.key.removePrefix("/")}\"")
+                }
+
+                builder.build()
+              }
+              operation.key.name.contains(
+                "PUT") -> {
+                val builder = AnnotationSpec.builder(PUT::class)
+
+                if (!customUrl) {
+                  builder.addMember("\"${path.key.removePrefix("/")}\"")
+                }
+
+                builder.build()
+              }
+              operation.key.name.contains(
+                "PATCH") -> {
+                val builder = AnnotationSpec.builder(PATCH::class)
+
+                if (!customUrl) {
+                  builder.addMember("\"${path.key.removePrefix("/")}\"")
+                }
+
+                builder.build()
+              }
+              operation.key.name.contains(
+                "DELETE") -> {
+                val builder = AnnotationSpec.builder(DELETE::class)
+
+                if (!customUrl) {
+                  builder.addMember("\"${path.key.removePrefix("/")}\"")
+                }
+
+                builder.build()
+              }
+              operation.key.name.contains(
+                "URL") -> AnnotationSpec.builder(GET::class).build()
+              else -> AnnotationSpec.builder(GET::class).addMember("\"${path.key.removePrefix("/")}\"").build()
             }
-            val funSpec = builder
-              .addModifiers(KModifier.PUBLIC, KModifier.ABSTRACT)
-              .addAnnotation(annotationSpec)
-              .addParameters(methodParameters)
-              .returns(returnedClass)
-              .addKdoc("$doc\n")
-              .build()
 
-            apiInterfaceTypeSpec.addFunction(funSpec)
-          } catch (exception: Exception) {
-            errorTracking.logException(exception)
+            try {
+              val doc = ((listOf(operation.value.summary + "\n") + getMethodParametersDocs(operation)).joinToString("\n")).trim()
+
+              val returnedClass = if (hasMultipart) Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(ResponseBody::class.java.name)) else getReturnedClass(operation, classNameList)
+              val methodParameters = getMethodParameters(operation)
+              val builder = FunSpec.builder(operation.value.operationId)
+
+              if (hasMultipart) {
+                builder.addAnnotation(AnnotationSpec.builder(Multipart::class).build())
+              }
+              val funSpec = builder
+                .addModifiers(KModifier.PUBLIC, KModifier.ABSTRACT)
+                .addAnnotation(annotationSpec)
+                .addParameters(methodParameters)
+                .returns(returnedClass)
+                .addKdoc("$doc\n")
+                .build()
+
+              apiInterfaceTypeSpec.addFunction(funSpec)
+            } catch (exception: Exception) {
+              errorTracking.logException(exception)
+            }
           }
         }
       }
-    }
-
-    additionalConfig?.additionalMethods?.forEach { additionalMethod: AdditionalMethod ->
-      val builder = FunSpec.builder(additionalMethod.methodName).addModifiers(KModifier.PUBLIC, KModifier.ABSTRACT)
-      val returnedClass = Single::class.asClassName().parameterizedBy(TypeVariableName.invoke(additionalMethod.returnType))
-
-      additionalMethod.apiPaths.forEach {
-        builder.addAnnotation(parseAnnotationFromAdditionalMethod(it))
-      }
-
-      val funSpec = builder
-        .addParameters(parseParametersFromAdditionalMethod(additionalMethod.parameters))
-        .returns(returnedClass)
-        .addKdoc(additionalMethod.toString())
-        .build()
-
-      apiInterfaceTypeSpec.addFunction(funSpec)
     }
   }
 
@@ -443,6 +603,10 @@ class KotlinApiBuilder(
           ParameterSpec.builder(name, MultipartBody.Part::class.java)
             .addAnnotation(AnnotationSpec.builder(Part::class).build()).build()
         }
+        "url" -> {
+          ParameterSpec.builder(name, String::class.java)
+            .addAnnotation(AnnotationSpec.builder(Url::class).build()).build()
+        }
         else -> null
       }
     }
@@ -553,23 +717,23 @@ class KotlinApiBuilder(
       }
   }*/
 
-  fun getGeneratedApiInterfaceString(): String {
-    return StorageUtils.generateString(proteinApiConfiguration.packageName, apiInterfaceTypeSpec)
+  fun getGeneratedApiInterfaceString(): List<String> {
+    return StorageUtils.generateString(proteinApiConfiguration.packageName, apiInterfaceTypeSpec.values.toMutableList())
   }
 
-  fun getGeneratedModelsString(): String {
-    var generated = ""
-    for (typeSpec in responseBodyModelListTypeSpec) {
-      generated += StorageUtils.generateString(proteinApiConfiguration.packageName, typeSpec)
-    }
-    return generated
-  }
-
-  fun getGeneratedEnums(): String {
-    var generated = ""
-    for (typeSpec in enumListTypeSpec) {
-      generated += StorageUtils.generateString(proteinApiConfiguration.packageName, typeSpec)
-    }
-    return generated
-  }
+//  fun getGeneratedModelsString(): String {
+//    var generated = ""
+//    for (typeSpec in responseBodyModelListTypeSpec) {
+//      generated += StorageUtils.generateString(proteinApiConfiguration.packageName, typeSpec)
+//    }
+//    return generated
+//  }
+//
+//  fun getGeneratedEnums(): String {
+//    var generated = ""
+//    for (typeSpec in enumListTypeSpec) {
+//      generated += StorageUtils.generateString(proteinApiConfiguration.packageName, typeSpec)
+//    }
+//    return generated
+//  }
 }

@@ -1,5 +1,6 @@
 package protein.steps;
 
+import com.intellij.ide.Prefs;
 import com.intellij.ui.wizard.WizardNavigationState;
 import com.intellij.ui.wizard.WizardStep;
 import protein.AddComponentWizardModel;
@@ -13,6 +14,7 @@ import protein.tracking.ErrorTracking;
 import javax.swing.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.util.prefs.Preferences;
 
 import static protein.common.StorageUtils.toFirstUpperCase;
 
@@ -22,22 +24,21 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
   private JPanel swaggerPanel;
   private JPanel agentPanel;
   private JLabel header;
-  private JTextField swaggerUrlTextField;
   private JTextField additionalConfigTextField;
   private JTextField serviceEndPointTextField;
   private JLabel packageNameLabel;
   private JTextField componentNameTextField;
   private JTextField domainTextField;
+  private JTextField swaggerUrlTextField2;
   private ErrorTracking errorTracking = new BugsnagErrorTracking();
 
   @Override
   public JComponent prepare(WizardNavigationState wizardNavigationState) {
     rootPanel.revalidate();
-
     if (Settings.getInstance().getComponentName() != null && !"".equals(Settings.getInstance().getComponentName())) {
       componentNameTextField.setText(Settings.getInstance().getComponentName());
       domainTextField.setText(Settings.getInstance().getDomainName());
-      swaggerUrlTextField.setText(Settings.getInstance().getSwaggerUrl());
+      swaggerUrlTextField2.setText(Settings.getInstance().getSwaggerUrl());
       serviceEndPointTextField.setText(Settings.getInstance().getServiceEndpoint());
       additionalConfigTextField.setText(Settings.getInstance().getAdditionalConfig());
     }
@@ -49,7 +50,7 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
   }
 
   private void setWizardFinishButtonProperties(WizardNavigationState wizardNavigationState) {
-    swaggerUrlTextField.addKeyListener(new KeyListener() {
+    swaggerUrlTextField2.addKeyListener(new KeyListener() {
       @Override
       public void keyTyped(KeyEvent e) {
         checkIfCanEnableFinishButton(wizardNavigationState);
@@ -112,7 +113,7 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
   private boolean canFinish() {
     return !"".equals(this.componentNameTextField.getText())
       && !"".equals(this.domainTextField.getText())
-      && !"".equals(this.swaggerUrlTextField.getText());
+      && !"".equals(this.swaggerUrlTextField2.getText());
   }
 
   private void saveSettings() {
@@ -123,7 +124,7 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
   private void updateSettingsValues() {
     Settings.getInstance().setComponentName(this.componentNameTextField.getText());
     Settings.getInstance().setDomainName(this.domainTextField.getText());
-    Settings.getInstance().setSwaggerUrl(this.swaggerUrlTextField.getText());
+    Settings.getInstance().setSwaggerUrl(this.swaggerUrlTextField2.getText());
     Settings.getInstance().setServiceEndpoint(this.serviceEndPointTextField.getText());
     Settings.getInstance().setAdditionalConfig(this.additionalConfigTextField.getText());
   }
@@ -131,15 +132,19 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
   private void buildKotlinApi() {
     ProteinApiConfiguration configuration = new ProteinApiConfiguration(
       this.serviceEndPointTextField.getText(),
-      this.swaggerUrlTextField.getText(),
+      this.swaggerUrlTextField2.getText(),
       Settings.getInstance().getPackageName(),
       toFirstUpperCase(this.componentNameTextField.getText()),
       Settings.getInstance().getModuleName(),
       "",
       this.additionalConfigTextField.getText()
     );
-    KotlinApiBuilder kotlinApiBuilder = new KotlinApiBuilder(configuration, errorTracking);
-    kotlinApiBuilder.build();
-    kotlinApiBuilder.generateFiles();
+    try {
+      KotlinApiBuilder kotlinApiBuilder = new KotlinApiBuilder(configuration, errorTracking);
+      kotlinApiBuilder.build();
+      kotlinApiBuilder.generateFiles();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
   }
 }
