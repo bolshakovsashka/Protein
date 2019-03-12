@@ -1,6 +1,5 @@
 package protein.kotlinbuilders
 
-import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
@@ -16,12 +15,7 @@ import com.squareup.kotlinpoet.TypeVariableName
 import com.squareup.kotlinpoet.asClassName
 import io.reactivex.Completable
 import io.reactivex.Single
-import io.swagger.models.ArrayModel
-import io.swagger.models.HttpMethod
-import io.swagger.models.ModelImpl
-import io.swagger.models.Operation
-import io.swagger.models.RefModel
-import io.swagger.models.Swagger
+import io.swagger.models.*
 import io.swagger.models.parameters.BodyParameter
 import io.swagger.models.parameters.Parameter
 import io.swagger.models.parameters.PathParameter
@@ -52,7 +46,6 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Url
 import java.io.FileNotFoundException
-import java.io.FileReader
 import java.net.UnknownHostException
 import java.util.ArrayList
 import kotlin.collections.HashMap
@@ -216,7 +209,7 @@ class KotlinApiBuilder(
       }
       u.propertySpecs.forEach {
         (it.type as? ParameterizedTypeName)?.typeArguments?.forEach { parameterizedTypeName: TypeName ->
-          val name = (parameterizedTypeName as? TypeVariableName)?.name
+          val name = getTypeVariableName(parameterizedTypeName)
           val find = cl.find { it.typeSpec.name?.equals(name) == true }
           if (null != find) {
             imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
@@ -229,10 +222,25 @@ class KotlinApiBuilder(
           imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
         }
       }
+      if ((u.superclass as TypeVariableName).name != "Any") {
+        val name = (u.superclass as TypeVariableName).name
+        val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
+        if (find != null) {
+          imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+        }
+      }
     } catch (e: Exception) {
       e.printStackTrace()
     }
     return imports
+  }
+
+  private fun getTypeVariableName(parameterizedTypeName: TypeName): String? {
+    return when (parameterizedTypeName) {
+      is ParameterizedTypeName -> getTypeVariableName(parameterizedTypeName.typeArguments[0])
+      is TypeVariableName -> parameterizedTypeName.name
+      else -> null
+    }
   }
 
   private fun updatePackage(typeSpecWrapper: TypeSpecWrapper, cl: ArrayList<TypeSpecWrapper>) {
@@ -328,34 +336,124 @@ class KotlinApiBuilder(
 
       var modelClassTypeSpec: TypeSpec.Builder
       try {
-        modelClassTypeSpec = TypeSpec.classBuilder(definition.key).addModifiers(KModifier.DATA)
+        modelClassTypeSpec = TypeSpec.classBuilder(definition.key)
         classNameList.add(definition.key)
       } catch (error: IllegalArgumentException) {
         modelClassTypeSpec = TypeSpec.classBuilder("Model" + definition.key.capitalize()).addModifiers(KModifier.DATA)
         classNameList.add("Model" + definition.key.capitalize())
       }
 
-      if (definition.value != null && definition.value.properties != null) {
+      if (definition.value != null) {
         val primaryConstructor = FunSpec.constructorBuilder()
-        for (modelProperty in definition.value.properties) {
-          val typeName: TypeName = getTypeName(modelProperty)
-          val propertySpec = PropertySpec.builder(modelProperty.key, typeName)
-            .addAnnotation(AnnotationSpec.builder(SerializedName::class)
-              .addMember("\"${modelProperty.key}\"")
-              .build())
-            .initializer(modelProperty.key)
-            .build()
-          primaryConstructor.addParameter(modelProperty.key, typeName)
-          modelClassTypeSpec.addProperty(propertySpec)
+        if (definition.value.properties != null) {
 
+          if (hasChilds(definition, swaggerModel.definitions)) {
+            modelClassTypeSpec.addModifiers(KModifier.OPEN)
+          } else {
+            modelClassTypeSpec.addModifiers(KModifier.DATA)
+          }
+
+          for (modelProperty in definition.value.properties) {
+            val typeName: TypeName = getTypeName(modelProperty)
+            val propertySpec = PropertySpec.builder(modelProperty.key, typeName)
+              .addAnnotation(AnnotationSpec.builder(SerializedName::class)
+                .addMember("\"${modelProperty.key}\"")
+                .build())
+              .initializer(modelProperty.key)
+              .build()
+            primaryConstructor.addParameter(modelProperty.key, typeName)
+            modelClassTypeSpec.addProperty(propertySpec)
+
+          }
+        } else if (definition.value is ComposedModel) {
+          if (hasChilds(definition, swaggerModel.definitions)) {
+            modelClassTypeSpec.addModifiers(KModifier.OPEN)
+          }
+          val composedModel: ComposedModel = (definition.value as ComposedModel)
+          if (composedModel.interfaces.isNotEmpty()) {
+            addParentParams(composedModel, modelClassTypeSpec, primaryConstructor)
+          }
+          if (composedModel.child.properties != null) {
+            addSelfProperties(composedModel, primaryConstructor, modelClassTypeSpec)
+          }
+        } else {
+          if (hasChilds(definition, swaggerModel.definitions)) {
+            modelClassTypeSpec.addModifiers(KModifier.OPEN)
+          }
         }
-        modelClassTypeSpec.primaryConstructor(primaryConstructor.build())
 
+        modelClassTypeSpec.primaryConstructor(primaryConstructor.build())
         responseBodyModelListTypeSpec.add(modelClassTypeSpec.build())
       }
     }
 
     return classNameList
+  }
+
+  private fun hasChilds(modelToCheck: Map.Entry<String, Model>, definitions: MutableMap<String, Model>): Boolean {
+    modelToCheck.value.let {
+      definitions.forEach { definition ->
+        if (definition.value is ComposedModel) {
+          val composedModel = (definition.value as ComposedModel);
+          for (interfaceModel in composedModel.interfaces) {
+            if (interfaceModel.simpleRef == modelToCheck.key) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  private fun addParentParams(composedModel: ComposedModel, modelClassTypeSpec: TypeSpec.Builder, primaryConstructor: FunSpec.Builder) {
+    val parent = composedModel.interfaces[0]
+
+    parent?.simpleRef?.let {
+      modelClassTypeSpec.superclass(TypeVariableName.invoke(it))
+      val parentProperties = getParentProperties(swaggerModel.definitions, it)
+
+      for (property in parentProperties) {
+        val typeName: TypeName = getTypeName(property)
+        primaryConstructor.addParameter(property.key, typeName)
+        modelClassTypeSpec.addSuperclassConstructorParameter(property.key, typeName)
+      }
+    }
+  }
+
+  private fun addSelfProperties(composedModel: ComposedModel, primaryConstructor: FunSpec.Builder, modelClassTypeSpec: TypeSpec.Builder) {
+    for (property in composedModel.child.properties) {
+      val typeName: TypeName = getTypeName(property)
+      val propertySpec = PropertySpec.builder(property.key, typeName)
+        .addAnnotation(AnnotationSpec.builder(SerializedName::class)
+          .addMember("\"${property.key}\"")
+          .build())
+        .initializer(property.key)
+        .build()
+
+      primaryConstructor.addParameter(property.key, typeName)
+      modelClassTypeSpec.addProperty(propertySpec)
+    }
+  }
+
+  private fun getParentProperties(definitions: Map<String, Model>, parentName: String?): Map<String, Property> {
+    val resultProperties = mutableMapOf<String, Property>()
+    parentName?.let {
+      val model = definitions[it]
+
+      val properties = model?.properties
+      if (properties != null) {
+        resultProperties.putAll(properties)
+      } else if (model is ComposedModel) {
+        resultProperties.putAll(model.child.properties)
+        if (!model.interfaces.isEmpty()) {
+          val parent = model.interfaces[0].simpleRef
+          resultProperties.putAll(getParentProperties(definitions, parent))
+        }
+        return resultProperties
+      }
+    }
+    return resultProperties
   }
 
   private fun createApiRetrofitInterface(classNameList: List<String>): Map<String, TypeSpec> {
@@ -560,7 +658,7 @@ class KotlinApiBuilder(
     return operation.value.parameters.filterNot { it.description.isNullOrBlank() }.map { "@param ${it.name} ${it.description}" }
   }
 
-  private fun getTypeName(modelProperty: MutableMap.MutableEntry<String, Property>): TypeName {
+  private fun getTypeName(modelProperty: Map.Entry<String, Property>): TypeName {
     val property = modelProperty.value
     return when {
       property.type == REF_SWAGGER_TYPE ->
@@ -640,7 +738,15 @@ class KotlinApiBuilder(
       is FloatProperty -> TypeVariableName.invoke(Float::class.simpleName!!)
       is DoubleProperty -> TypeVariableName.invoke(Double::class.simpleName!!)
       is RefProperty -> TypeVariableName.invoke(items.simpleRef)
-      else -> getKotlinClassTypeName(items.type, items.format)
+      is ArrayProperty -> {
+        if (items.format == null && items.items != null) {
+          getTypedArray(items.items);
+        } else {
+          getKotlinClassTypeName(items.type, items.format)
+        }
+      }
+      else ->
+        getKotlinClassTypeName(items.type, items.format)
     }
     return List::class.asClassName().parameterizedBy(typeProperty)
   }
@@ -707,15 +813,15 @@ class KotlinApiBuilder(
     }
   }
 
-  /*private fun getPropertyInitializer(type: String): String {
-      return when (type) {
-          ARRAY_SWAGGER_TYPE -> "ArrayList()"
-          INTEGER_SWAGGER_TYPE -> "0"
-          STRING_SWAGGER_TYPE -> "\"\""
-          BOOLEAN_SWAGGER_TYPE -> "false"
-          else -> "null"
-      }
-  }*/
+/*private fun getPropertyInitializer(type: String): String {
+    return when (type) {
+        ARRAY_SWAGGER_TYPE -> "ArrayList()"
+        INTEGER_SWAGGER_TYPE -> "0"
+        STRING_SWAGGER_TYPE -> "\"\""
+        BOOLEAN_SWAGGER_TYPE -> "false"
+        else -> "null"
+    }
+}*/
 
   fun getGeneratedApiInterfaceString(): List<String> {
     return StorageUtils.generateString(proteinApiConfiguration.packageName, apiInterfaceTypeSpec.values.toMutableList())
