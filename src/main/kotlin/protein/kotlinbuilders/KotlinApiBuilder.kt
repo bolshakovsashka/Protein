@@ -209,7 +209,7 @@ class KotlinApiBuilder(
       }
       u.propertySpecs.forEach {
         (it.type as? ParameterizedTypeName)?.typeArguments?.forEach { parameterizedTypeName: TypeName ->
-          val name = (parameterizedTypeName as? TypeVariableName)?.name
+          val name = getTypeVariableName(parameterizedTypeName)
           val find = cl.find { it.typeSpec.name?.equals(name) == true }
           if (null != find) {
             imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
@@ -222,7 +222,7 @@ class KotlinApiBuilder(
           imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
         }
       }
-      if((u.superclass as TypeVariableName).name != "Any"){
+      if ((u.superclass as TypeVariableName).name != "Any") {
         val name = (u.superclass as TypeVariableName).name
         val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
         if (find != null) {
@@ -233,6 +233,14 @@ class KotlinApiBuilder(
       e.printStackTrace()
     }
     return imports
+  }
+
+  private fun getTypeVariableName(parameterizedTypeName: TypeName): String? {
+    return when (parameterizedTypeName) {
+      is ParameterizedTypeName -> getTypeVariableName(parameterizedTypeName.typeArguments[0])
+      is TypeVariableName -> parameterizedTypeName.name
+      else -> null
+    }
   }
 
   private fun updatePackage(typeSpecWrapper: TypeSpecWrapper, cl: ArrayList<TypeSpecWrapper>) {
@@ -725,7 +733,15 @@ class KotlinApiBuilder(
       is FloatProperty -> TypeVariableName.invoke(Float::class.simpleName!!)
       is DoubleProperty -> TypeVariableName.invoke(Double::class.simpleName!!)
       is RefProperty -> TypeVariableName.invoke(items.simpleRef)
-      else -> getKotlinClassTypeName(items.type, items.format)
+      is ArrayProperty -> {
+        if (items.format == null && items.items != null) {
+          getTypedArray(items.items);
+        } else {
+          getKotlinClassTypeName(items.type, items.format)
+        }
+      }
+      else ->
+        getKotlinClassTypeName(items.type, items.format)
     }
     return List::class.asClassName().parameterizedBy(typeProperty)
   }
