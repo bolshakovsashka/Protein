@@ -222,6 +222,13 @@ class KotlinApiBuilder(
           imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
         }
       }
+      if((u.superclass as TypeVariableName).name != "Any"){
+        val name = (u.superclass as TypeVariableName).name
+        val find = cl.find { pair -> (pair.typeSpec.name?.equals(name, true)) == true }
+        if (find != null) {
+          imports.add("${find.subPackage}.$PREFIX_MODELS.${find.typeSpec.name}")
+        }
+      }
     } catch (e: Exception) {
       e.printStackTrace()
     }
@@ -331,7 +338,7 @@ class KotlinApiBuilder(
       if (definition.value != null) {
         val primaryConstructor = FunSpec.constructorBuilder()
         if (definition.value.properties != null) {
-          modelClassTypeSpec.addModifiers(KModifier.DATA)
+
           for (modelProperty in definition.value.properties) {
             val typeName: TypeName = getTypeName(modelProperty)
             val propertySpec = PropertySpec.builder(modelProperty.key, typeName)
@@ -345,7 +352,7 @@ class KotlinApiBuilder(
 
           }
         } else if (definition.value is ComposedModel) {
-          modelClassTypeSpec.addModifiers(KModifier.OPEN)
+
           val composedModel: ComposedModel = (definition.value as ComposedModel)
           if (composedModel.interfaces.isNotEmpty()) {
             addParentParams(composedModel, modelClassTypeSpec, primaryConstructor)
@@ -353,8 +360,12 @@ class KotlinApiBuilder(
           if (composedModel.child.properties != null) {
             addSelfProperties(composedModel, primaryConstructor, modelClassTypeSpec)
           }
-        } else {
+        }
+
+        if (hasChilds(definition, swaggerModel.definitions)) {
           modelClassTypeSpec.addModifiers(KModifier.OPEN)
+        } else {
+          modelClassTypeSpec.addModifiers(KModifier.DATA)
         }
 
         modelClassTypeSpec.primaryConstructor(primaryConstructor.build())
@@ -364,6 +375,22 @@ class KotlinApiBuilder(
 
 
     return classNameList
+  }
+
+  private fun hasChilds(modelToCheck: Map.Entry<String, Model>, definitions: MutableMap<String, Model>): Boolean {
+    modelToCheck.value.let {
+      definitions.forEach { definition ->
+        if (definition.value is ComposedModel) {
+          val composedModel = (definition.value as ComposedModel);
+          for (interfaceModel in composedModel.interfaces) {
+            if (interfaceModel.simpleRef == modelToCheck.key) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
   }
 
   private fun addParentParams(composedModel: ComposedModel, modelClassTypeSpec: TypeSpec.Builder, primaryConstructor: FunSpec.Builder) {
