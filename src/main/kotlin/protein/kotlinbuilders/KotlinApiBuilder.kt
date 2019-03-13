@@ -20,14 +20,7 @@ import io.swagger.models.parameters.BodyParameter
 import io.swagger.models.parameters.Parameter
 import io.swagger.models.parameters.PathParameter
 import io.swagger.models.parameters.QueryParameter
-import io.swagger.models.properties.ArrayProperty
-import io.swagger.models.properties.DoubleProperty
-import io.swagger.models.properties.FloatProperty
-import io.swagger.models.properties.IntegerProperty
-import io.swagger.models.properties.LongProperty
-import io.swagger.models.properties.Property
-import io.swagger.models.properties.RefProperty
-import io.swagger.models.properties.StringProperty
+import io.swagger.models.properties.*
 import io.swagger.parser.SwaggerParser
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
@@ -668,8 +661,25 @@ class KotlinApiBuilder(
         val arrayProperty = property as ArrayProperty
         getTypedArray(arrayProperty.items).requiredOrNullable(arrayProperty.required)
       }
+      property is MapProperty -> {
+        getMapTypeName(modelProperty)
+      }
       else -> getKotlinClassTypeName(property.type, property.format).requiredOrNullable(property.required)
     }
+  }
+
+  private fun getMapTypeName(mapProperty: Map.Entry<String, Property>): TypeName {
+    val property = (mapProperty.value as MapProperty).additionalProperties
+
+    property?.let {
+      //https://swagger.io/docs/specification/data-models/dictionaries/
+      return Map::class.asClassName().parameterizedBy(TypeVariableName.invoke(String::class.simpleName!!),
+        getTypeNameByProperty(property))
+        .requiredOrNullable(property.required)
+    }
+
+    return getKotlinClassTypeName(mapProperty.value.type, mapProperty.value.format)
+      .requiredOrNullable(mapProperty.value.required)
   }
 
   private fun getMethodParameters(
@@ -732,6 +742,11 @@ class KotlinApiBuilder(
   }
 
   private fun getTypedArray(items: Property): TypeName {
+    val typeProperty = getTypeNameByProperty(items)
+    return List::class.asClassName().parameterizedBy(typeProperty)
+  }
+
+  private fun getTypeNameByProperty(items: Property): TypeName {
     val typeProperty = when (items) {
       is LongProperty -> TypeVariableName.invoke(Long::class.simpleName!!)
       is IntegerProperty -> TypeVariableName.invoke(Int::class.simpleName!!)
@@ -747,8 +762,8 @@ class KotlinApiBuilder(
       }
       else ->
         getKotlinClassTypeName(items.type, items.format)
-    }
-    return List::class.asClassName().parameterizedBy(typeProperty)
+      }
+    return typeProperty
   }
 
   private fun TypeName.requiredOrNullable(required: Boolean) = if (required) this else asNullable()
