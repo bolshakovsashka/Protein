@@ -66,7 +66,7 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
         checkIfCanEnableFinishButton(wizardNavigationState);
       }
     });
-    wizardNavigationState.FINISH.setName("СДЕЛАТЬ ЗАЕБИСЬ");
+    wizardNavigationState.FINISH.setName("MAKE IT OHUENNO");
     if (!canFinish()) {
       wizardNavigationState.FINISH.setEnabled(false);
     }
