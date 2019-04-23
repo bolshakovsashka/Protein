@@ -229,13 +229,13 @@
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
   </component>
   <component name="libraryTable">
-    <library name="Gradle: com.bugsnag:bugsnag:3.4.4">
+    <library name="Gradle: com.bugsnag:bugsnag:3.4.6">
       <CLASSES>
-        <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.bugsnag/bugsnag/3.4.4/f2a9c9083dc9747b76a4149c01c967f0b2e7718/bugsnag-3.4.4.jar!/" />
+        <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.bugsnag/bugsnag/3.4.6/4b05779f6e87f5bcf447575eca40f7149166a206/bugsnag-3.4.6.jar!/" />
       </CLASSES>
       <JAVADOC />
       <SOURCES>
-        <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.bugsnag/bugsnag/3.4.4/926d0815d8e7e7eab3c14e2824591cd434329fc1/bugsnag-3.4.4-sources.jar!/" />
+        <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.bugsnag/bugsnag/3.4.6/abfad0a33fff2ddfb8797ab32e73a77a4408fba1/bugsnag-3.4.6-sources.jar!/" />
       </SOURCES>
     </library>
     <library name="Gradle: com.fasterxml.jackson.core:jackson-annotations:2.9.0">
