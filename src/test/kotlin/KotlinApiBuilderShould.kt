@@ -10,30 +10,36 @@ import tracking.ConsoleLogTracking
 class KotlinApiBuilderShould {
 
   private val favoritesSchemaProteinConfig = ProteinApiConfiguration(
-      ConfigurationForTests.SERVICE_ENDPOINT,
-      "",
-      ConfigurationForTests.PACKAGE_NAME,
-      ConfigurationForTests.COMPONENT_NAME,
-      ConfigurationForTests.MODULE_NAME,
-      ConfigurationForTests.SWAGGER_FILE_FAVORITES
+    ConfigurationForTests.SERVICE_ENDPOINT,
+    "",
+    ConfigurationForTests.PACKAGE_NAME,
+    ConfigurationForTests.COMPONENT_NAME,
+    ConfigurationForTests.MODULE_NAME,
+    ConfigurationForTests.SWAGGER_FILE_FAVORITES,
+    "",
+    null
   )
 
   private val openStfSchemaProteinConfig = ProteinApiConfiguration(
-      ConfigurationForTests.SERVICE_ENDPOINT,
-      "",
-      ConfigurationForTests.PACKAGE_NAME,
-      ConfigurationForTests.COMPONENT_NAME,
-      ConfigurationForTests.MODULE_NAME,
-      ConfigurationForTests.SWAGGER_FILE_OPENSTF
+    ConfigurationForTests.SERVICE_ENDPOINT,
+    "",
+    ConfigurationForTests.PACKAGE_NAME,
+    ConfigurationForTests.COMPONENT_NAME,
+    ConfigurationForTests.MODULE_NAME,
+    ConfigurationForTests.SWAGGER_FILE_OPENSTF,
+    "",
+    null
   )
 
   private val petStoreSchemaProteinConfig = ProteinApiConfiguration(
-      ConfigurationForTests.SERVICE_ENDPOINT,
-      "",
-      ConfigurationForTests.PACKAGE_NAME,
-      ConfigurationForTests.COMPONENT_NAME,
-      ConfigurationForTests.MODULE_NAME,
-      ConfigurationForTests.SWAGGER_FILE_PET_STORE
+    ConfigurationForTests.SERVICE_ENDPOINT,
+    "",
+    ConfigurationForTests.PACKAGE_NAME,
+    ConfigurationForTests.COMPONENT_NAME,
+    ConfigurationForTests.MODULE_NAME,
+    ConfigurationForTests.SWAGGER_FILE_PET_STORE,
+    "",
+    null
   )
 
   private val consoleLogTracking = ConsoleLogTracking()
@@ -43,43 +49,43 @@ class KotlinApiBuilderShould {
     val kotlinApiBuilder = KotlinApiBuilder(favoritesSchemaProteinConfig, consoleLogTracking)
     kotlinApiBuilder.build()
     assertEquals("",
-        "package com.mycompany.mylibrary\n" +
-            "\n" +
-            "import io.reactivex.Completable\n" +
-            "import io.reactivex.Single\n" +
-            "import retrofit2.http.DELETE\n" +
-            "import retrofit2.http.GET\n" +
-            "import retrofit2.http.PUT\n" +
-            "import retrofit2.http.Path\n" +
-            "\n" +
-            "interface componentNameApiInterface {\n" +
-            "    /**\n" +
-            "     * Get all favorites for this user\n" +
-            "     *\n" +
-            "     * @param Authorization Authorization\n" +
-            "     */\n" +
-            "    @GET(\"favorites\")\n" +
-            "    fun getFavorites(): Single<GetFavoritesResponse>\n" +
-            "\n" +
-            "    /**\n" +
-            "     * Save favorite\n" +
-            "     *\n" +
-            "     * @param adId adId\n" +
-            "     * @param Authorization Authorization\n" +
-            "     */\n" +
-            "    @PUT(\"favorites/{adId}\")\n" +
-            "    fun saveFavorite(@Path(\"adId\") adId: String): Completable\n" +
-            "\n" +
-            "    /**\n" +
-            "     * Delete favorite\n" +
-            "     *\n" +
-            "     * @param adId adId\n" +
-            "     * @param Authorization Authorization\n" +
-            "     */\n" +
-            "    @DELETE(\"favorites/{adId}\")\n" +
-            "    fun deleteFavorite(@Path(\"adId\") adId: String): Completable\n" +
-            "}\n",
-        kotlinApiBuilder.getGeneratedApiInterfaceString())
+      "package com.mycompany.mylibrary\n" +
+        "\n" +
+        "import io.reactivex.Completable\n" +
+        "import io.reactivex.Single\n" +
+        "import retrofit2.http.DELETE\n" +
+        "import retrofit2.http.GET\n" +
+        "import retrofit2.http.PUT\n" +
+        "import retrofit2.http.Path\n" +
+        "\n" +
+        "interface componentNameApiInterface {\n" +
+        "    /**\n" +
+        "     * Get all favorites for this user\n" +
+        "     *\n" +
+        "     * @param Authorization Authorization\n" +
+        "     */\n" +
+        "    @GET(\"favorites\")\n" +
+        "    fun getFavorites(): Single<GetFavoritesResponse>\n" +
+        "\n" +
+        "    /**\n" +
+        "     * Save favorite\n" +
+        "     *\n" +
+        "     * @param adId adId\n" +
+        "     * @param Authorization Authorization\n" +
+        "     */\n" +
+        "    @PUT(\"favorites/{adId}\")\n" +
+        "    fun saveFavorite(@Path(\"adId\") adId: String): Completable\n" +
+        "\n" +
+        "    /**\n" +
+        "     * Delete favorite\n" +
+        "     *\n" +
+        "     * @param adId adId\n" +
+        "     * @param Authorization Authorization\n" +
+        "     */\n" +
+        "    @DELETE(\"favorites/{adId}\")\n" +
+        "    fun deleteFavorite(@Path(\"adId\") adId: String): Completable\n" +
+        "}\n",
+      kotlinApiBuilder.getGeneratedApiInterfaceString())
   }
 
   @Test
@@ -87,8 +93,8 @@ class KotlinApiBuilderShould {
     val kotlinApiBuilder = KotlinApiBuilder(openStfSchemaProteinConfig, consoleLogTracking)
     kotlinApiBuilder.build()
     assertEquals("",
-        OPENSTF_INTERFACE_MOCK,
-        kotlinApiBuilder.getGeneratedApiInterfaceString())
+      OPENSTF_INTERFACE_MOCK,
+      kotlinApiBuilder.getGeneratedApiInterfaceString())
   }
 
   @Test
@@ -96,7 +102,7 @@ class KotlinApiBuilderShould {
     val kotlinApiBuilder = KotlinApiBuilder(petStoreSchemaProteinConfig, consoleLogTracking)
     kotlinApiBuilder.build()
     assertEquals("",
-        PET_STORE_INTERFACE_MOCK,
-        kotlinApiBuilder.getGeneratedApiInterfaceString())
+      PET_STORE_INTERFACE_MOCK,
+      kotlinApiBuilder.getGeneratedApiInterfaceString())
   }
 }

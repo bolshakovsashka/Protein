@@ -46,7 +46,7 @@ public class StorageUtils {
     return listModel;
   }
 
-  public static void generateFiles(@Nullable String moduleName, @Nullable String packageName,  @Nullable String subPackage, @NotNull com.squareup.kotlinpoet.TypeSpec classTypeSpec, String[] imports) {
+  public static void generateFiles(@Nullable String customPath, @Nullable String moduleName, @Nullable String packageName, @Nullable String subPackage, @NotNull com.squareup.kotlinpoet.TypeSpec classTypeSpec, String[] imports) {
     try {
       FileSpec.Builder builder = FileSpec.builder(subPackage != null ? (packageName + "." + subPackage) : packageName, classTypeSpec.getName());
       if (imports.length != 0) {
@@ -55,12 +55,20 @@ public class StorageUtils {
       FileSpec kotlinFile = builder
         .addType(classTypeSpec)
         .build();
-      Project currentProject = (Project) DataManager.getInstance().getDataContext().getData(DataConstants.PROJECT);
       String projectPath;
-      if (moduleName != null && !"".equals(moduleName)) {
-        projectPath = FileEditorManager.getInstance(currentProject).getProject().getBasePath() + "/" + moduleName + "/src/main/java/";
+      if (customPath == null) {
+        Project currentProject = (Project) DataManager.getInstance().getDataContext().getData(DataConstants.PROJECT);
+        if (moduleName != null && !"".equals(moduleName)) {
+          projectPath = FileEditorManager.getInstance(currentProject).getProject().getBasePath() + "/" + moduleName + "/src/main/java/";
+        } else {
+          projectPath = FileEditorManager.getInstance(currentProject).getProject().getBasePath() + "/src/main/java/";
+        }
       } else {
-        projectPath = FileEditorManager.getInstance(currentProject).getProject().getBasePath() + "/src/main/java/";
+        if (moduleName != null && !"".equals(moduleName)) {
+          projectPath = customPath + "/" + moduleName + "/src/main/java/";
+        } else {
+          projectPath = customPath + "/src/main/java/";
+        }
       }
       Path path = FileSystems.getDefault().getPath(projectPath);
       if (!Files.exists(path)) {

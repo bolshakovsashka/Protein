@@ -7,7 +7,8 @@ data class ProteinApiConfiguration(
   override val componentName: String,
   override val moduleName: String,
   override val swaggerFile: String,
-  override val additionalConfig:String
+  override val additionalConfig: String,
+  override val customPath: String?
 ) : ProteinConfiguration
 
 interface ProteinConfiguration {
@@ -17,5 +18,6 @@ interface ProteinConfiguration {
   val componentName: String
   val moduleName: String
   val swaggerFile: String
-  val additionalConfig:String
+  val additionalConfig: String
+  val customPath: String?
 }

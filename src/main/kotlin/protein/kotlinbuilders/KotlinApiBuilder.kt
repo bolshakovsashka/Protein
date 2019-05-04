@@ -165,19 +165,34 @@ class KotlinApiBuilder(
     cl.forEach {
       val imports = generateImports(it.typeSpec, cl)
       StorageUtils.generateFiles(
-        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, "${it.subPackage}.$PREFIX_MODELS", it.typeSpec, imports.toTypedArray())
+        proteinApiConfiguration.customPath,
+        proteinApiConfiguration.moduleName,
+        proteinApiConfiguration.packageName, "" +
+        "${it.subPackage}.$PREFIX_MODELS",
+        it.typeSpec,
+        imports.toTypedArray())
     }
 
     apiInterfaceTypeSpec.forEach { t, u ->
       val imports = generateImports(u, cl)
 
       StorageUtils.generateFiles(
-        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, "$t.$PREFIX_API", u, imports.toTypedArray())
+        proteinApiConfiguration.customPath,
+        proteinApiConfiguration.moduleName,
+        proteinApiConfiguration.packageName,
+        "$t.$PREFIX_API",
+        u,
+        imports.toTypedArray())
     }
 
     for (typeSpec in enumListTypeSpec) {
       StorageUtils.generateFiles(
-        proteinApiConfiguration.moduleName, proteinApiConfiguration.packageName, null, typeSpec, emptyArray())
+        proteinApiConfiguration.customPath,
+        proteinApiConfiguration.moduleName,
+        proteinApiConfiguration.packageName,
+        null,
+        typeSpec,
+        emptyArray())
     }
   }
 
@@ -762,7 +777,7 @@ class KotlinApiBuilder(
       }
       else ->
         getKotlinClassTypeName(items.type, items.format)
-      }
+    }
     return typeProperty
   }
 

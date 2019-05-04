@@ -137,7 +137,8 @@ public class PackageInfoStep extends WizardStep<AddComponentWizardModel> {
       toFirstUpperCase(this.componentNameTextField.getText()),
       Settings.getInstance().getModuleName(),
       "",
-      this.additionalConfigTextField.getText()
+      this.additionalConfigTextField.getText(),
+      null
     );
     try {
       KotlinApiBuilder kotlinApiBuilder = new KotlinApiBuilder(configuration, errorTracking);
