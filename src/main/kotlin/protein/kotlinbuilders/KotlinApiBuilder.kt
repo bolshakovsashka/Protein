@@ -378,11 +378,11 @@ class KotlinApiBuilder(
             modelClassTypeSpec.addModifiers(KModifier.OPEN)
           }
           val composedModel: ComposedModel = (definition.value as ComposedModel)
-          if (composedModel.interfaces.isNotEmpty()) {
-            addParentParams(composedModel, modelClassTypeSpec, primaryConstructor)
-          }
           if (composedModel.child.properties != null) {
             addSelfProperties(composedModel, primaryConstructor, modelClassTypeSpec)
+          }
+          if (composedModel.interfaces.isNotEmpty()) {
+            addParentParams(composedModel, modelClassTypeSpec, primaryConstructor)
           }
         } else {
           if (hasChilds(definition, swaggerModel.definitions)) {
