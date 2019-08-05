@@ -142,21 +142,21 @@ dependencies {
 
   def swaggerVersion = '1.5.16'
   compile "io.swagger:swagger-annotations:$swaggerVersion"
-  compile("io.swagger:swagger-core:$swaggerVersion") /*{
+  compile("io.swagger:swagger-core:$swaggerVersion") {
         exclude group: 'org.slf4j'
-    }*/
-  compile("io.swagger:swagger-models:$swaggerVersion") /*{
+    }
+  compile("io.swagger:swagger-models:$swaggerVersion") {
         exclude group: 'org.slf4j'
-    }*/
-  compile("io.swagger:swagger-parser:1.0.33") /*{
+    }
+  compile("io.swagger:swagger-parser:1.0.33") {
         exclude group: 'org.slf4j'
-    }*/
+    }
 
   compile 'commons-io:commons-io:2.5'
 
-  compile("com.bugsnag:bugsnag:3.+")/* {
+  compile("com.bugsnag:bugsnag:3.+"){
         exclude group: 'org.slf4j'
-    }*/
+    }
   
   testCompile 'org.jetbrains.kotlin:kotlin-test-junit:1.1.3-2'
   testCompile 'org.mockito:mockito-core:1.10.19'
